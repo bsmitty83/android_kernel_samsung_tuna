@@ -66,3 +66,4 @@ obj-$(CONFIG_CACHE2DMANAGER)	+= cache-2dmanager/
 obj-$(CONFIG_UID_CPUTIME) += uid_cputime.o
 obj-$(CONFIG_COLOR_CONTROL)	+= color_control.o
 obj-$(CONFIG_CUSTOM_VOLTAGE)	+= custom_voltage.o
+obj-$(CONFIG_FSYNC_CONTROL)	+= fsync_control.o
