@@ -48,7 +48,12 @@ static struct vibrator {
 static ssize_t pwmvalue_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%lu\n", pwmval);
+	int count;
+
+	count = sprintf(buf, "%lu\n", pwmval);
+	pr_info("vibrator: pwmval: %lu\n", pwmval);
+
+	return count;
 }
 
 ssize_t pwmvalue_store(struct device *dev,
@@ -58,7 +63,7 @@ ssize_t pwmvalue_store(struct device *dev,
 	if (kstrtoul(buf, 0, &pwmval))
 		pr_err("vibrator: error in storing pwm value\n");
 
-	pr_info("vibrator: pwmval set to %lu\n", pwmval);
+	pr_info("vibrator: pwmval: %lu\n", pwmval);
 
 	return size;
 }
@@ -158,7 +163,7 @@ static void vibrator_enable(struct timed_output_dev *dev, int value)
 	hrtimer_cancel(&vibdata.timer);
 
 	if (value) {
-		pr_debug("vibrator: value=%d, pwmval=%lu\n", value, pwmval);
+		pr_info("vibrator: value=%d, pwmval=%lu\n", value, pwmval);
 		wake_lock(&vibdata.wklock);
 		vibrator_timer_init();
 		gpio_set_value(vibdata.gpio_en, 1);
