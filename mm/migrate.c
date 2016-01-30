@@ -703,6 +703,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	struct anon_vma *anon_vma = NULL;
 
 	if (!trylock_page(page)) {
+		pr_err("__unmap_and_move: failed to trylock_page for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 		if (!force || mode == MIGRATE_ASYNC)
 			goto out;
 
@@ -735,6 +736,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	 * serializes that).
 	 */
 	if (PageKsm(page) && !offlining) {
+		pr_err("__unmap_and_move: PageKsm for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 		rc = -EBUSY;
 		goto unlock;
 	}
@@ -742,12 +744,14 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	/* charge against new page */
 	charge = mem_cgroup_prepare_migration(page, newpage, &mem, GFP_KERNEL);
 	if (charge == -ENOMEM) {
+		pr_err("__unmap_and_move: failed to charge for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 		rc = -ENOMEM;
 		goto unlock;
 	}
 	BUG_ON(charge);
 
 	if (PageWriteback(page)) {
+		pr_err("__unmap_and_move: in page_writeback for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 		/*
 		 * Only in the case of a full syncronous migration is it
 		 * necessary to wait for PageWriteback. In the async case,
@@ -770,7 +774,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	 * File Caches may use write_page() or lock_page() in migration, then,
 	 * just care Anon page here.
 	 */
-	if (PageAnon(page)) {
+	if (PageAnon(page) && !PageKsm(page)) {
 		/*
 		 * Only page_lock_anon_vma() understands the subtleties of
 		 * getting a hold on an anon_vma from outside one of its mms.
@@ -795,6 +799,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 			 */
 			remap_swapcache = 0;
 		} else {
+			pr_err("__unmap_and_move: in page_anon case for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 			goto uncharge;
 		}
 	}
@@ -815,6 +820,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 		VM_BUG_ON(PageAnon(page));
 		if (page_has_private(page)) {
 			try_to_free_buffers(page);
+			pr_err("__unmap_and_move: in !page_mapping/page_has_private case for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 			goto uncharge;
 		}
 		goto skip_unmap;
@@ -824,8 +830,14 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	try_to_unmap(page, TTU_MIGRATION|TTU_IGNORE_MLOCK|TTU_IGNORE_ACCESS);
 
 skip_unmap:
-	if (!page_mapped(page))
+	if (!page_mapped(page)) {
 		rc = move_to_new_page(newpage, page, remap_swapcache, mode);
+		if (rc) {
+			pr_err("__unmap_and_move: move_to_new_page failed for page 0x%x, mode = %d, force = %d, code = %d\n", page_to_phys(page), mode, force, rc);
+		}
+	} else if (rc) {
+		pr_err("__unmap_and_move: skip_unmap/page_mapped case for page 0x%x, mode = %d, force = %d, code = %d\n", page_to_phys(page), mode, force, rc);
+	}
 
 	if (rc && remap_swapcache)
 		remove_migration_ptes(page, page);
@@ -855,8 +867,10 @@ static int unmap_and_move(new_page_t get_new_page, unsigned long private,
 	int *result = NULL;
 	struct page *newpage = get_new_page(page, private, &result);
 
-	if (!newpage)
+	if (!newpage) {
+		pr_err("unmap_and_move: get_new_page failed for page 0x%x, mode = %d, force = %d\n", page_to_phys(page), mode, force);
 		return -ENOMEM;
+	}
 
 	if (page_count(page) == 1) {
 		/* page was freed from under us. So we are done. */
@@ -923,12 +937,15 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
 	struct page *new_hpage = get_new_page(hpage, private, &result);
 	struct anon_vma *anon_vma = NULL;
 
-	if (!new_hpage)
+	if (!new_hpage) {
+		pr_err("unmap_and_move_huge_page: get_new_page failed for page 0x%x, mode = %d, force = %d\n", page_to_phys(hpage), mode, force);
 		return -ENOMEM;
+	}
 
 	rc = -EAGAIN;
 
 	if (!trylock_page(hpage)) {
+		pr_err("unmap_and_move_huge_page: trylock_page failed for page 0x%x, mode = %d, force = %d\n", page_to_phys(hpage), mode, force);
 		if (!force || mode != MIGRATE_SYNC)
 			goto out;
 		lock_page(hpage);
@@ -942,8 +959,10 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
 	if (!page_mapped(hpage))
 		rc = move_to_new_page(new_hpage, hpage, 1, mode);
 
-	if (rc)
+	if (rc) {
+		pr_err("unmap_and_move_huge_page: move_to_new_page failed for page 0x%x, mode = %d, force = %d, code = %d\n", page_to_phys(hpage), mode, force, rc);
 		remove_migration_ptes(hpage, hpage);
+	}
 
 	if (anon_vma)
 		put_anon_vma(anon_vma);
@@ -1021,6 +1040,9 @@ int migrate_pages(struct list_head *from,
 			}
 		}
 	}
+	if (rc != 0) {
+		pr_err("migrate_pages: iterations ended up at %d pass with return code %d\n", pass, rc);
+	}
 	rc = 0;
 out:
 	if (!swapwrite)
@@ -1067,6 +1089,9 @@ int migrate_huge_pages(struct list_head *from,
 				break;
 			}
 		}
+	}
+	if (rc != 0) {
+		pr_err("migrate_pages: iterations ended up at %d pass with return code %d\n", pass, rc);
 	}
 	rc = 0;
 out:

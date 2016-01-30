@@ -743,7 +743,7 @@ static void rproc_reset_poolmem(struct rproc *rproc)
 	pool->cur_size = pool->mem_size;
 }
 
-static int rproc_add_mem_entry(struct rproc *rproc, struct fw_resource *rsc)
+static int rproc_add_mem_entry(struct rproc *rproc, struct fw_resource *rsc, u32 rsc_len)
 {
 	struct rproc_mem_entry *me = rproc->memory_maps;
 	int i = 0;
@@ -761,7 +761,7 @@ static int rproc_add_mem_entry(struct rproc *rproc, struct fw_resource *rsc)
 	if (!ret) {
 		me->da = rsc->da;
 		me->pa = (phys_addr_t)rsc->pa;
-		me->size = rsc->len;
+		me->size = rsc_len;
 #ifdef CONFIG_REMOTEPROC_CORE_DUMP
 		/* FIXME: ION heaps are reported as RSC_CARVEOUT.  We need a
 		 * better way to understand which sections are for
@@ -823,6 +823,7 @@ static int rproc_handle_resources(struct rproc *rproc, struct fw_resource *rsc,
 	u64 trace_da1 = 0;
 	u64 cdump_da0 = 0;
 	u64 cdump_da1 = 0;
+        u32 rsc_len = 0;
 	int ret = 0;
 
 	while (len >= sizeof(*rsc) && !ret) {
@@ -874,7 +875,7 @@ static int rproc_handle_resources(struct rproc *rproc, struct fw_resource *rsc,
 			*bootaddr = da;
 			break;
 		case RSC_DEVMEM:
-			ret = rproc_add_mem_entry(rproc, rsc);
+			ret = rproc_add_mem_entry(rproc, rsc, rsc->len);
 			if (ret) {
 				dev_err(dev, "can't add mem_entry %s\n",
 							rsc->name);
@@ -882,8 +883,15 @@ static int rproc_handle_resources(struct rproc *rproc, struct fw_resource *rsc,
 			}
 			break;
 		case RSC_CARVEOUT:
+			rsc_len = rsc->len;
+#if defined(CONFIG_ION_OMAP_IPU_MEM_IOBUFS_SIZE) && CONFIG_ION_OMAP_IPU_MEM_IOBUFS_SIZE > 0
+			if (!strncmp("IPU_MEM_IOBUFS", rsc->name, 14)) {
+				dev_info(dev, "overriding IPU_MEM_IOBUFS size to %dMB\n", CONFIG_ION_OMAP_IPU_MEM_IOBUFS_SIZE);
+				rsc_len = CONFIG_ION_OMAP_IPU_MEM_IOBUFS_SIZE * SZ_1M;
+			}
+#endif
 			if (!pa) {
-				ret = rproc_alloc_poolmem(rproc, rsc->len, &pa);
+				ret = rproc_alloc_poolmem(rproc, rsc_len, &pa);
 				if (ret) {
 					dev_err(dev, "can't alloc poolmem %s\n",
 								rsc->name);
@@ -891,7 +899,7 @@ static int rproc_handle_resources(struct rproc *rproc, struct fw_resource *rsc,
 				}
 				rsc->pa = pa;
 			} else {
-				ret = rproc_check_poolmem(rproc, rsc->len, pa);
+				ret = rproc_check_poolmem(rproc, rsc_len, pa);
 				if (ret) {
 					dev_err(dev, "static memory for %s "
 						"doesn't belong to poolmem\n",
@@ -899,7 +907,7 @@ static int rproc_handle_resources(struct rproc *rproc, struct fw_resource *rsc,
 					break;
 				}
 			}
-			ret = rproc_add_mem_entry(rproc, rsc);
+			ret = rproc_add_mem_entry(rproc, rsc, rsc_len);
 			if (ret) {
 				dev_err(dev, "can't add mem_entry %s\n",
 							rsc->name);
@@ -1565,6 +1573,21 @@ static int rproc_runtime_resume(struct device *dev)
 	return 0;
 }
 
+int remove_module(const char* name, unsigned int flags);
+
+static void remove_omap_rpmsg_module_worker(struct work_struct *work)
+{
+	int ret = 0;
+	pr_info("trying to remove omap_rpmsg ...\n");
+	ret = remove_module("omap_rpmsg", 0);
+	if (ret) {
+		pr_err("omap_rpmsg removal failed: %d\n", ret);
+	} else {
+		pr_info("omap_rpmsg removal succeeded\n");
+	}
+}
+static DECLARE_WORK(remove_omap_rpmsg_module_work, remove_omap_rpmsg_module_worker);
+
 static int rproc_runtime_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -1600,6 +1623,7 @@ static int rproc_runtime_suspend(struct device *dev)
 		ret = -EBUSY;
 		goto abort;
 	}
+
 	/* Now call machine-specific suspend function (if exist) */
 	if (rproc->ops->suspend)
 		ret = rproc->ops->suspend(rproc, rproc->force_suspend);
@@ -1619,6 +1643,8 @@ static int rproc_runtime_suspend(struct device *dev)
 	/* we are not interested in the returned value */
 	_event_notify(rproc, RPROC_POS_SUSPEND, NULL);
 	mutex_unlock(&rproc->pm_lock);
+
+	queue_work(system_long_wq, &remove_omap_rpmsg_module_work);
 
 	return 0;
 abort:

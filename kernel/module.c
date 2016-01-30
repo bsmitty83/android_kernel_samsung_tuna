@@ -771,19 +771,13 @@ static void wait_for_zero_refcount(struct module *mod)
 	mutex_lock(&module_mutex);
 }
 
-SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
-		unsigned int, flags)
+int remove_module(const char* name, unsigned int flags)
 {
 	struct module *mod;
-	char name[MODULE_NAME_LEN];
 	int ret, forced = 0;
 
-	if (!capable(CAP_SYS_MODULE) || modules_disabled)
+	if (modules_disabled)
 		return -EPERM;
-
-	if (strncpy_from_user(name, name_user, MODULE_NAME_LEN-1) < 0)
-		return -EFAULT;
-	name[MODULE_NAME_LEN-1] = '\0';
 
 	if (mutex_lock_interruptible(&module_mutex) != 0)
 		return -EINTR;
@@ -847,6 +841,22 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 out:
 	mutex_unlock(&module_mutex);
 	return ret;
+}
+EXPORT_SYMBOL(remove_module);
+
+SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
+		unsigned int, flags)
+{
+	char name[MODULE_NAME_LEN];
+
+	if (!capable(CAP_SYS_MODULE) || modules_disabled)
+		return -EPERM;
+
+	if (strncpy_from_user(name, name_user, MODULE_NAME_LEN-1) < 0)
+		return -EFAULT;
+	name[MODULE_NAME_LEN-1] = '\0';
+
+	return remove_module(name, flags);
 }
 
 static inline void print_unload_info(struct seq_file *m, struct module *mod)
