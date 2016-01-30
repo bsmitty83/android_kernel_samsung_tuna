@@ -108,8 +108,13 @@ __test_page_isolated_in_pageblock(unsigned long pfn, unsigned long end_pfn)
 		else
 			break;
 	}
-	if (pfn < end_pfn)
+	if (pfn < end_pfn) {
+		page = pfn_to_page(pfn);
+		pr_err("failed isolation test at pfn = 0x%lx, page_count = %d, page_private = %ld, end_pfn = 0x%lx\n", pfn, page_count(page), page_private(page), end_pfn);
+                pr_err("page: buddy = %d, LRU = %d\n", PageBuddy(page), PageLRU(page));
+		pr_err("pageblock: migratetype = 0x%x, flags = 0x%lx\n", get_pageblock_migratetype(page), get_pageblock_flags(page));
 		return 0;
+	}
 	return 1;
 }
 

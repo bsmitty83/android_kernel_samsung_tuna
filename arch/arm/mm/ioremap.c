@@ -204,8 +204,11 @@ void __iomem * __arm_ioremap_pfn_caller(unsigned long pfn,
 	/*
 	 * Don't allow RAM to be mapped - this causes problems with ARMv6+
 	 */
-	if (WARN_ON(pfn_valid(pfn)))
-		return NULL;
+        if (pfn_valid(pfn)) {
+		pr_err("ioremap: remapping RAM for pfn 0x%lx - can cause aliasing problems, but continuing anyway.\n", pfn);
+        }
+	//if (WARN_ON(pfn_valid(pfn)))
+	//	return NULL;
 
 	type = get_mem_type(mtype);
 	if (!type)

@@ -162,7 +162,7 @@ CONFIG_RT_MUTEXES=y
 CONFIG_BASE_SMALL=0
 CONFIG_MODULES=y
 # CONFIG_MODULE_FORCE_LOAD is not set
-# CONFIG_MODULE_UNLOAD is not set
+CONFIG_MODULE_UNLOAD=y
 CONFIG_MODVERSIONS=y
 # CONFIG_MODULE_SRCVERSION_ALL is not set
 CONFIG_STOP_MACHINE=y
@@ -282,7 +282,7 @@ CONFIG_ARCH_OMAP2PLUS=y
 #
 # OMAP Feature Selections
 #
-CONFIG_OMAP_RPMSG=y
+CONFIG_OMAP_RPMSG=m
 CONFIG_OMAP_RPMSG_RECOVERY=y
 CONFIG_OMAP_SMARTREFLEX=y
 CONFIG_OMAP_SMARTREFLEX_CLASS3=y
@@ -306,7 +306,20 @@ CONFIG_OMAP_REMOTEPROC_MEMPOOL_SIZE=0x0
 # CONFIG_OMAP_PM_NONE is not set
 # CONFIG_OMAP_PM_NOOP is not set
 CONFIG_OMAP_PM=y
-CONFIG_ION_OMAP_TILER2D_SIZE=70
+# Note: unless you want to debug CMA allocators
+# and other really interesting memory management
+# stuff, it's suggested to keep ION CMA carveout
+# aligned to 8MB. Both TILER2D_SIZE and
+# IOBUFS_SIZE below were selected to satisfy
+# this constraint, be careful when changing these.
+CONFIG_ION_OMAP_TILER2D_SIZE=61
+CONFIG_ION_OMAP_IPU_MEM_IOBUFS_SIZE=21
+# Close-to-the-original settings - good
+# for testing the behavior under higher memory
+# pressure.
+#CONFIG_ION_OMAP_TILER2D_SIZE=69
+#CONFIG_ION_OMAP_IPU_MEM_IOBUFS_SIZE=85
+CONFIG_CMA_DEBUG=y
 
 #
 # TI OMAP2/3/4 Specific Features
