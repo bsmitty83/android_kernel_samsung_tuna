@@ -30,6 +30,7 @@
 #include <linux/device.h>
 #include <linux/init.h>
 #include <linux/bootmem.h>
+#include <linux/dma-contiguous.h>
 
 #include "tf_protocol.h"
 #include "tf_defs.h"
@@ -45,6 +46,13 @@
 
 static struct class *tf_ctrl_class;
 
+// Dummy device for CMA:
+static struct device smc_cma_device = { 0, };
+
+static phys_addr_t omap4_smc_cma_addr;
+static struct page* omap4_smc_cma_pages;
+static size_t omap4_smc_cma_pages_count;
+
 #define TF_DEVICE_CTRL_BASE_NAME "tf_ctrl"
 
 struct tf_pa_ctrl {
@@ -56,6 +64,29 @@ struct tf_pa_ctrl {
 	u32 conf_size;
 	u8 *conf_buffer;
 };
+
+static bool omap_smc_allocate_memory(void)
+{
+        omap4_smc_cma_pages = dma_alloc_from_contiguous_fixed_addr(&smc_cma_device,
+						omap4_smc_cma_addr, omap4_smc_cma_pages_count);
+	if (!omap4_smc_cma_pages) {
+		pr_err("CMA SMC pages allocation failed\n");
+		return false;
+	}
+
+	return true;
+}
+
+static bool omap_smc_free_memory(void)
+{
+	if (!dma_release_from_contiguous(&smc_cma_device, omap4_smc_cma_pages,
+					omap4_smc_cma_pages_count)) {
+		pr_err("CMA SMC pages release failed\n");
+		return false;
+	}
+
+	return true;
+}
 
 static int tf_ctrl_check_omap_type(void)
 {
@@ -154,6 +185,11 @@ static long tf_ctrl_device_ioctl(struct file *file, unsigned int ioctl_num,
 			goto start_exit;
 		}
 
+		if (!omap_smc_allocate_memory()) {
+			result = -ENOMEM;
+			goto start_exit;
+		}
+
 		result = tf_validate_shmem_and_flags(
 				(u32)pa_ctrl.conf_buffer,
 				pa_ctrl.conf_size,
@@ -207,8 +243,10 @@ start_exit:
 			TF_POWER_OPERATION_SHUTDOWN);
 		if (result)
 			dpr_err("SMC: stop failed [0x%x]\n", result);
-		else
+		else {
 			dpr_info("SMC: stopped\n");
+			omap_smc_free_memory();
+		}
 		break;
 
 	default:
@@ -314,6 +352,9 @@ static int __initdata smc_address;
 void __init tf_allocate_workspace(void)
 {
 	struct tf_device *dev = tf_get_device();
+	const size_t cma_alignment = PAGE_SIZE << max(MAX_ORDER, pageblock_order);
+	phys_addr_t cma_region_addr;
+	size_t cma_region_size;
 
 	tf_clock_timer_init();
 
@@ -334,7 +375,17 @@ void __init tf_allocate_workspace(void)
 	else
 		dev->workspace_addr = smc_address;
 
-	pr_info("SMC: Allocated workspace of 0x%x Bytes at (0x%x)\n",
+	omap4_smc_cma_addr = dev->workspace_addr;
+	omap4_smc_cma_pages_count = dev->workspace_size / PAGE_SIZE;
+	cma_region_addr = round_down(omap4_smc_cma_addr, cma_alignment);
+	cma_region_size = round_up(dev->workspace_size, cma_alignment);
+
+	pr_info("Reserving CMA SMC region at address = 0x%x with size = 0x%x\n",
+		cma_region_addr, cma_region_size);
+	dma_declare_contiguous(&smc_cma_device, cma_region_size,
+				cma_region_addr, 0);
+
+	pr_info("SMC: will allocate workspace of 0x%x Bytes at (0x%x) once requested\n",
 		dev->workspace_size,
 		dev->workspace_addr);
 }
